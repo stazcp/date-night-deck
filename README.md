@@ -2,6 +2,8 @@
 
 A question card game for couples. Take turns drawing a card and answering it, from easy warm-ups to deep questions, would-you-rathers and romantic dares.
 
+**Play it at [staz.ai/games/date-night-deck](https://staz.ai/games/date-night-deck/).**
+
 ## How to play
 
 1. Enter both names and start the game.
@@ -29,3 +31,7 @@ python3 -m http.server 8000
 ## Adding questions
 
 Edit `questions.js`. Each deck has an `id`, a `name`, a `blurb` and a list of `cards`. Set `both: true` for cards both players answer together.
+
+## Deploying
+
+The game is hosted on [staz.ai](https://staz.ai/games/date-night-deck/). The site copies this repo's files at build time, and pushing to `main` triggers a redeploy (see `.github/workflows/redeploy-staz-ai.yml`). Markdown and dotfiles aren't served.
