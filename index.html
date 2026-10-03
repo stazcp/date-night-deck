@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Date Night Deck</title>
+<meta name="description" content="A question card game for couples. Take turns drawing cards, from easy warm-ups to deep questions and romantic dares.">
+<meta name="theme-color" content="#1d1b3a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Figtree:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<main class="wrap" id="app" hidden>
+  <header class="top">
+    <h1>Date Night Deck</h1>
+    <nav class="menu" aria-label="Menu">
+      <button class="icon-btn" data-open="decks" aria-label="Choose decks">Decks</button>
+      <button class="icon-btn" data-open="favs" aria-label="Saved cards">Saved</button>
+      <button class="icon-btn" data-open="more" aria-label="More options">More</button>
+    </nav>
+  </header>
+
+  <section class="players" id="players" aria-label="Players"></section>
+
+  <section class="stage">
+    <div class="card" id="card">
+      <div class="face back"><span class="back-mark">D<i>&amp;</i>N</span></div>
+      <div class="face front">
+        <div class="front-top"><span class="cat" id="cat"></span>
+          <button class="fav" id="fav" aria-label="Save this card" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-10-9.3C.4 8.3 2.3 4 6.3 4c2.2 0 3.6 1.2 4.4 2.4.3.4.9.4 1.2 0C12.7 5.2 14.1 4 16.3 4c4 0 5.9 4.3 4.3 7.7C19.5 16.4 12 21 12 21z"/></svg>
+          </button>
+        </div>
+        <p class="q" id="q"></p>
+        <div class="who" id="who"></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="left" id="left"></p>
+  <div class="actions" id="actions"></div>
+</main>
+
+<div class="overlay" id="setup" hidden>
+  <form class="panel" id="setup-form">
+    <div class="logo" aria-hidden="true"><span>D<i>&amp;</i>N</span></div>
+    <h2>Date Night Deck</h2>
+    <p>Take turns drawing a card and answering it. Each of you gets three passes per game. Out of passes? You take a dare instead.</p>
+    <div class="fields">
+      <label for="n1">Player one</label><input id="n1" autocomplete="off" placeholder="Your name" maxlength="20">
+      <label for="n2">Player two</label><input id="n2" autocomplete="off" placeholder="Your partner's name" maxlength="20">
+    </div>
+    <button class="btn" type="submit">Start the game</button>
+  </form>
+</div>
+
+<div class="sheet-wrap" id="sheet-wrap" hidden>
+  <div class="scrim" data-close></div>
+  <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <header class="sheet-head"><h2 id="sheet-title"></h2><button class="icon-btn" data-close>Close</button></header>
+    <div class="sheet-body" id="sheet-body"></div>
+  </section>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="questions.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
