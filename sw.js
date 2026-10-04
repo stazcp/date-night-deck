@@ -8,7 +8,9 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    // only clean up this game's own old caches: Cache Storage is shared with
+    // the whole origin (staz.ai's offline cache, AI model downloads, ...)
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith("date-night-deck-") && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
