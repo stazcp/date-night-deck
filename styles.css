@@ -170,6 +170,29 @@ textarea { resize: vertical; min-height: 90px; }
 .stat b { display: block; font: 400 2rem var(--display); color: var(--brass); font-variant-numeric: tabular-nums; }
 .stat span { font-size: .85rem; color: var(--muted); }
 
+/* Two phones */
+.link-pill {
+  margin-right: auto; border: 0; cursor: pointer; font-weight: 600; font-size: .78rem; padding: .4em .8em .4em .7em;
+  border-radius: 999px; background: rgba(255,255,255,.06); color: var(--muted); display: inline-flex; align-items: center; gap: .45em;
+  max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.link-pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.link-pill.on { color: var(--ink); }
+.link-pill.on::before { background: #6fd39b; box-shadow: none; }
+.or { display: flex; align-items: center; gap: 12px; width: 100%; font-size: .85rem; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: rgba(169,165,204,.3); }
+.row.center { justify-content: center; }
+.logo.small { width: 64px; height: 90px; border-width: 4px; }
+.logo.small span { font-size: .78rem; }
+.code-box { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 18px; border-radius: 14px; background: rgba(255,255,255,.05); width: 100%; }
+.code { font: 700 2.2rem/1.1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .18em; color: var(--brass); padding-left: .18em; }
+.code-input { text-transform: uppercase; letter-spacing: .2em; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.wait { margin: 0; color: var(--muted); text-align: center; padding: .85em 0; }
+.wait b { color: var(--ink); }
+.dots::after { content: "…"; display: inline-block; animation: dots 1.4s steps(4, end) infinite; overflow: hidden; vertical-align: bottom; width: 0; }
+@keyframes dots { to { width: 1.1em; } }
+.panel .fine { font-size: .82rem; }
+
 .toast {
   position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px);
   background: var(--card); color: var(--card-ink); padding: .6em 1.1em; border-radius: 999px; font-weight: 600; font-size: .9rem;
@@ -184,4 +207,5 @@ textarea { resize: vertical; min-height: 90px; }
 @media (prefers-reduced-motion: reduce) {
   .card, .sheet, .toast, .switch::after { transition: none; animation: none; }
   .card.out { animation: none; }
+  .dots::after { animation: none; width: auto; }
 }
