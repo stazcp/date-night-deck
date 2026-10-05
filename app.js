@@ -578,6 +578,7 @@
         S.started = true;
         if (isNew) S.game = freshGame();
         save();
+        clearTimeout(pairWait);
         hideLink(); showApp();
         pushState(null);
         toast(isNew ? `${name} joined` : `${S.names[1]} is back`);
@@ -616,8 +617,10 @@
         const first = !link.connected;
         link.peer = peerId; link.connected = true;
         S = cleanSnapshot(d.s);
-        // reconnect under the latest name, in case it was changed in game
-        if (session.name !== S.names[1]) writeSession({ ...session, name: S.names[1] });
+        clearTimeout(pairWait);
+        // reconnect under the latest name, in case it was changed in game; and
+        // remember the host's, for the Pair again screen after a reload
+        if (session.name !== S.names[1] || session.hostName !== S.names[0]) writeSession({ ...session, name: S.names[1], hostName: S.names[0] });
         if (first) { hideLink(); showApp({ animate: false }); } else render();
         if (d.toast) toast(d.toast);
         if (d.decks) openSheet("decks");
@@ -712,7 +715,8 @@
     try { pairing?.close(); } catch (e) { /* closed */ }
     pairing = null;
   }
-  const partnerName = () => S.names[link.role === "host" ? 1 : 0];
+  // a guest only knows the host's name once linked (until then S is its own game)
+  const partnerName = () => (link.role === "host" ? S.names[1] : link.connected ? S.names[0] : session?.hostName || "");
   // an earlier partner to pair with again, so the game carries on
   const hasPartner = () => (link.role === "host" ? !!session?.partner && S.started : !!session?.hostKey);
 
@@ -738,7 +742,9 @@
   }
   async function hostScan() {
     const gen = pairGen, pair = await loadPair();
-    const text = await scanFor("Scan your partner's code", "On their phone it says “Now let them scan this”.", pair.isAnswer, gen);
+    const text = await scanFor("Scan your partner's code", "On their phone it says “Now let them scan this”.", pair.isAnswer, gen,
+      // not scanned yet? go back to showing this phone's code
+      () => { stopScan(); if (pairing) showPair("host-code", pairing.payload); });
     if (!text || gen !== pairGen) return;
     showPair("connecting");
     try {
@@ -760,7 +766,7 @@
     try {
       const pair = await loadPair();
       const text = await scanFor("Scan the host's code", hasPartner()
-        ? `On ${S.names[0]}'s phone, open Two phones and tap Pair again.`
+        ? `On ${partnerName() || "the host"}'s phone, open Two phones and tap Pair again.`
         : "On their phone: Host a game, then Pair on the same Wi-Fi.", pair.isOffer, gen);
       if (!text || gen !== pairGen) return;
       showPair("connecting");
@@ -785,8 +791,8 @@
   }
 
   // camera view that resolves with the first QR code `accept` likes, or null if cancelled
-  async function scanFor(title, hint, accept, gen) {
-    showPair("scan", null, { title, hint });
+  async function scanFor(title, hint, accept, gen, back) {
+    showPair("scan", null, { title, hint, back });
     stopScan();
     const ctl = (scanCtl = new AbortController());
     let warned = 0;
@@ -808,7 +814,7 @@
     if (gen !== pairGen || e?.name === "AbortError") return;
     console.warn("date-night-deck: Wi-Fi pairing failed", e);
     const msg = e?.name === "NotAllowedError" ? "Scanning needs the camera. Allow camera access for this site in your browser settings, then try again."
-      : e?.name === "NotFoundError" || e?.name === "OverconstrainedError" ? "This phone has no camera we can use. Let the other phone scan instead: swap who hosts."
+      : e?.name === "NotFoundError" || e?.name === "OverconstrainedError" ? "Pairing on Wi-Fi needs a camera on both phones, and this one has none we can use. Use a room code instead when you have internet."
       : e?.message === "no-network" ? "This phone isn't on a network. Connect both phones to the same Wi-Fi, or turn on one phone's hotspot and join it from the other."
       : e?.message === "no-hello" ? "The phones paired, but the game didn't answer. Reload the game on both phones so they're on the same version, then try again."
       : e?.message === "bad-code" ? "That code didn't work. Make sure you scanned the code from this game's pairing screen."
@@ -849,12 +855,14 @@
     } else if (view === "scan") {
       p.innerHTML = `<h2>${esc(opts.title)}</h2>
         <div class="scanner"><video id="scan-video" playsinline muted></video></div>
-        <p>${esc(opts.hint)}</p>${cancel}`;
+        <p>${esc(opts.hint)}</p>
+        ${opts.back ? `<button type="button" class="btn ghost small" id="scan-back">Back to my code</button>` : ""}${cancel}`;
+      if (opts.back) $("scan-back").onclick = opts.back;
     } else if (view === "connecting") {
       p.innerHTML = `<h2>Pairing</h2><p class="wait">Connecting the phones<span class="dots"></span></p>${cancel}`;
     } else if (view === "again") {
       p.innerHTML = `<div class="logo small" aria-hidden="true"><span>D<i>&amp;</i>N</span></div><h2>Pair again</h2>
-        <p>You were playing on ${esc(S.names[0] || "the host")}'s phone over Wi-Fi. Pair again to pick up where you left off.</p>
+        <p>You were playing on ${esc(partnerName() || "the host")}'s phone over Wi-Fi. Pair again to pick up where you left off.</p>
         <button class="btn" type="button" id="pair-retry">Scan their code</button>
         <button type="button" class="btn ghost small" id="pair-leave">Leave game</button>`;
       $("pair-retry").onclick = () => joinLocal();
