@@ -611,9 +611,11 @@
         if (!d?.s || typeof d.s !== "object") return;
         // trust the first host this phone links with, then only a phone holding
         // its key (sent over the encrypted channel) — survives the host reloading
+        // (On Wi-Fi the QR exchange itself proves who the host is, so a new key
+        // from a host that started a fresh game is fine.)
         const key = str(d.key, 40);
-        if (!key || (session.hostKey && key !== session.hostKey)) return;
-        if (!session.hostKey) writeSession({ ...session, hostKey: key });
+        if (!key || (session.hostKey && key !== session.hostKey && link.mode !== "local")) return;
+        if (key !== session.hostKey) writeSession({ ...session, hostKey: key });
         const first = !link.connected;
         link.peer = peerId; link.connected = true;
         S = cleanSnapshot(d.s);
