@@ -411,11 +411,12 @@
       if (!link.role) { body.innerHTML = `<p>This phone isn't linked to another one.</p>`; return; }
       body.innerHTML = `
         <p>${esc(linkStatus())}</p>
+        ${host && !link.connected ? qrBox(inviteUrl()) : ""}
         <div class="code-box"><span class="label">Room code</span><span class="code">${esc(link.code)}</span></div>
         ${host ? `<div class="row"><button class="btn small" id="share">Share invite link</button></div>` : ""}
         <p>${host ? "You're the host. This phone keeps the game: decks, saved cards and your own cards come from here." : "The host's phone keeps the game. Your own saved game on this phone is untouched."}</p>
         <div class="row"><button class="btn small danger" id="unlink">${host ? "End two-phone game" : "Leave game"}</button></div>`;
-      if (host) $("share").onclick = shareInvite;
+      if (host) { $("share").onclick = shareInvite; fillQR(body); }
       $("unlink").onclick = () => { closeSheet(); endLink({ notify: true }); };
     }
     if (snap) sheetRestore(snap);
@@ -454,7 +455,30 @@
     const r = crypto.getRandomValues(new Uint8Array(6));
     return Array.from(r, (b) => CODE_CHARS[b % CODE_CHARS.length]).join("");
   }
-  const inviteUrl = () => `${location.origin}${location.pathname}?join=${link.code}`;
+  const inviteUrl = (code = link.code) => `${location.origin}${location.pathname}?join=${code}`;
+
+  // QR code of the invite link: the partner scans it with their camera app
+  let qrLib = null;
+  const qrCache = {};
+  const loadQR = () => (qrLib ||= import("./vendor/qrcode.js").then((m) => m.default).catch((e) => { qrLib = null; throw e; }));
+  const qrBox = (url) => `<div class="qr" data-qr="${esc(url)}">${qrCache[url] || ""}</div>`;
+  async function fillQR(root) {
+    for (const box of root.querySelectorAll("[data-qr]")) {
+      const url = box.dataset.qr;
+      if (!qrCache[url]) {
+        try {
+          const qr = (await loadQR())(0, "M");
+          qr.addData(url); qr.make();
+          const n = qr.getModuleCount(), pad = 4;
+          let d = "";
+          for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c + pad} ${r + pad}h1v1h-1z`;
+          qrCache[url] = `<svg viewBox="0 0 ${n + pad * 2} ${n + pad * 2}" role="img" aria-label="QR code of the invite link" shape-rendering="crispEdges"><path d="${d}"/></svg>`;
+        } catch (e) { box.hidden = true; continue; } // offline: the code and share button still work
+      }
+      // the screen may have re-rendered while the library loaded
+      if (box.isConnected && !box.firstChild) box.innerHTML = qrCache[url];
+    }
+  }
   function linkStatus() {
     const partner = S.names[link.role === "host" ? 1 : 0];
     if (link.connected) return `Linked with ${partner}'s phone.`;
@@ -682,13 +706,16 @@
         if (n) join(c, n);
       };
     } else if (view === "hosting") {
-      p.innerHTML = `<h2>Your room code</h2>
-        <div class="code-box"><span class="code">${esc(code)}</span></div>
+      p.innerHTML = `<h2>Invite your partner</h2>
+        <p>Scan this with their phone's camera, or enter the code under Join a game.</p>
+        ${qrBox(inviteUrl(code))}
+        <div class="code-box"><span class="label">Room code</span><span class="code">${esc(code)}</span></div>
         <button class="btn" type="button" id="share">Share invite link</button>
         <p class="wait">Waiting for your partner to join<span class="dots"></span></p>
         <p class="fine">Both phones need the internet to connect. After that, cards and turns stay in sync.</p>
         <button type="button" class="btn ghost small" id="cancel-link">Cancel</button>`;
       $("share").onclick = shareInvite;
+      fillQR(p);
     } else if (view === "joining") {
       p.innerHTML = `<h2>Joining ${esc(code)}</h2>
         <p class="wait">Looking for your partner's phone<span class="dots"></span></p>

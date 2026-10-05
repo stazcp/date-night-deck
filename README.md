@@ -14,7 +14,7 @@ A question card game for couples. Take turns drawing a card and answering it, fr
 
 ### On two phones
 
-1. One of you taps **Host a game** and shares the room code or invite link.
+1. One of you taps **Host a game**. Your partner scans the QR code with their camera, or you share the room code or invite link.
 2. The other taps **Join a game** (or opens the link) and enters the code.
 3. Each phone shows whose turn it is. Only the player whose turn it is can answer or pass, and either of you can tap "Done" on a both-of-you card.
 
@@ -41,7 +41,7 @@ python3 -m http.server 8000
 
 [Trystero](https://github.com/dmotz/trystero) connects the phones directly over WebRTC. Public Nostr relays only introduce them to each other; cards and turns travel phone to phone, end-to-end encrypted. There's no server and nothing to pay for. Both phones need the internet to connect, and a few strict networks (some mobile carriers, VPNs) block direct connections.
 
-The host applies every action through the same `apply()` rules as single-phone play and sends the guest the full game state after each change. `vendor/trystero-nostr.js` is a bundled copy of Trystero, loaded only when you start a two-phone game; the file header says how to rebuild it.
+The host applies every action through the same `apply()` rules as single-phone play and sends the guest the full game state after each change. `vendor/trystero-nostr.js` is a bundled copy of Trystero, loaded only when you start a two-phone game; the file header says how to rebuild it. `vendor/qrcode.js` (qrcode-generator) draws the invite QR code the same way.
 
 ## Adding questions
 
