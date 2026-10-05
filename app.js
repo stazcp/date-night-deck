@@ -253,10 +253,11 @@
   }
 
   // `shown` is the card on the table, so a re-render only flips when a new card is drawn
-  let shown = { key: null, drawn: -1 };
+  let shown = { key: null, drawn: -1 }, shownAt = 0;
   function render({ animate = true } = {}) {
     const g = S.game;
     if (g.current !== shown.key || g.drawn !== shown.drawn) {
+      shownAt = Date.now();
       if (!g.current) card.classList.remove("flipped");
       else if (animate) flipTo(g.current);
       else { paintFront(g.current); card.classList.add("flipped"); }
@@ -268,7 +269,11 @@
 
   $("actions").addEventListener("click", (e) => {
     const t = e.target.closest("[data-act]")?.dataset.act;
-    if (t) act({ t, n: S.game.drawn });
+    if (!t) return;
+    // a tap that lands just as the partner's tap brings a new card was meant
+    // for the old card, not the one nobody has read yet
+    if (t !== "draw" && Date.now() - shownAt < 700) return;
+    act({ t, n: S.game.drawn });
   });
   $("fav").addEventListener("click", () => { if (S.game.current) act({ t: "fav", key: S.game.current }); });
   $("link-pill").addEventListener("click", () => openSheet("link"));
@@ -424,6 +429,12 @@
   const APP_ID = "staz.ai/date-night-deck";
   const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const PROTOCOL = 1;
+  // both phones look cards up by deck and index, so they must have the same decks
+  const DECKS_VERSION = (() => {
+    let h = 2166136261;
+    for (const ch of JSON.stringify(DECKS)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    return (h >>> 0).toString(36);
+  })();
   const link = { role: null, code: null, room: null, peer: null, connected: false, send: {} };
   let session = readSession();
   let p2p = null;
@@ -453,13 +464,41 @@
     const { names, adult, on, favs, custom, game } = S;
     return { names, adult, on, favs, custom, game };
   }
+  // a guest renders whatever the host sends, so only keep well-formed values
+  function cleanSnapshot(s) {
+    const strs = (a, max) => (Array.isArray(a) ? a.filter((x) => typeof x === "string").map((x) => x.slice(0, max)) : []);
+    const int = (v, lo, hi) => (Number.isInteger(v) ? Math.min(hi, Math.max(lo, v)) : lo);
+    const g = s.game || {}, out = freshState();
+    out.names = [0, 1].map((i) => str(s.names?.[i], 20) || `Player ${i ? "two" : "one"}`);
+    out.adult = s.adult === true;
+    out.custom = (Array.isArray(s.custom) ? s.custom : [])
+      .filter((c) => c && typeof c.id === "string" && typeof c.text === "string")
+      .map((c) => ({ id: c.id.slice(0, 20), text: c.text.slice(0, 200) }));
+    S = out; // cardText() below reads the custom cards
+    out.on = strs(s.on, 20).filter((id) => deckById(id));
+    out.favs = strs(s.favs, 80).filter((k) => cardText(k));
+    out.game = {
+      used: strs(g.used, 80),
+      current: typeof g.current === "string" && cardText(g.current) ? g.current : null,
+      isDare: g.isDare === true,
+      turn: int(g.turn, 0, 1),
+      answered: [0, 1].map((i) => int(g.answered?.[i], 0, 1e6)),
+      passes: [0, 1].map((i) => int(g.passes?.[i], 0, PASSES)),
+      drawn: int(g.drawn, 0, 1e9)
+    };
+    out.started = true;
+    return out;
+  }
   function pushState(r) {
     if (!link.connected) return;
     link.send.state({ s: snapshot(), toast: r?.toast, decks: !!r?.decks }, { target: link.peer });
   }
 
   async function connect() {
+    const { role, code } = link;
     const { joinRoom } = await loadP2P();
+    // cancelled (or restarted) while the library loaded
+    if (link.role !== role || link.code !== code || link.room) return;
     const room = joinRoom({ appId: APP_ID, password: link.code }, "room-" + link.code, {
       onJoinError: (d) => console.warn("date-night-deck: peer connection failed", d.error)
     });
@@ -476,7 +515,7 @@
       hello.onMessage = (d, { peerId }) => {
         const token = str(d?.token, 40), name = str(d?.name, 20) || "Player two";
         if (!token) return;
-        if (d.v !== PROTOCOL) return full.send({ reason: "version" }, { target: peerId });
+        if (d.v !== PROTOCOL || d.decks !== DECKS_VERSION) return full.send({ reason: "version" }, { target: peerId });
         // one partner at a time; the same phone (same token) may always come back
         if (link.connected && link.peer !== peerId && token !== session.partner) return full.send({ reason: "full" }, { target: peerId });
         const isNew = token !== session.partner;
@@ -507,12 +546,16 @@
       };
     } else {
       // greet every phone in the room; only the host answers
-      room.onPeerJoin = (peerId) => hello.send({ v: PROTOCOL, token: session.token, name: session.name }, { target: peerId });
+      room.onPeerJoin = (peerId) => hello.send({ v: PROTOCOL, decks: DECKS_VERSION, token: session.token, name: session.name }, { target: peerId });
       state.onMessage = (d, { peerId }) => {
-        if (!d?.s) return;
+        if (!d?.s || typeof d.s !== "object") return;
+        // while linked, only the host we're linked with may change the game
+        if (link.connected && peerId !== link.peer) return;
         const first = !link.connected;
         link.peer = peerId; link.connected = true;
-        S = Object.assign(freshState(), d.s, { started: true });
+        S = cleanSnapshot(d.s);
+        // reconnect under the latest name, in case it was changed in game
+        if (session.name !== S.names[1]) writeSession({ ...session, name: S.names[1] });
         if (first) { hideLink(); showApp({ animate: false }); } else render();
         if (d.toast) toast(d.toast);
         if (d.decks) openSheet("decks");
@@ -543,6 +586,7 @@
       await connect();
     } catch (e) {
       console.warn("date-night-deck: couldn't load two-phone mode", e);
+      if (link.role !== role || link.code !== code) return false;
       endLink({ notify: false });
       showLink("error", "Couldn't start two-phone mode. It needs an internet connection.");
       return false;
