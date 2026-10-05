@@ -18,6 +18,8 @@ A question card game for couples. Take turns drawing a card and answering it, fr
 2. The other taps **Join a game** (or opens the link) and enters the code.
 3. Each phone shows whose turn it is. Only the player whose turn it is can answer or pass, and either of you can tap "Done" on a both-of-you card.
 
+**No internet?** Tap **Pair on the same Wi-Fi** instead. Both phones need to be on the same Wi-Fi, or one on the other's hotspot. The host's phone shows a code, the partner scans it with the in-game scanner and shows a code back, and the host scans that. If the connection drops, tap **Pair again** to carry on the same game.
+
 The host's phone keeps the game: decks, saved cards and your own cards come from there, and the guest's own saved game is left alone. If a phone drops or reloads, it reconnects to the same game.
 
 ## Features
@@ -42,6 +44,8 @@ python3 -m http.server 8000
 [Trystero](https://github.com/dmotz/trystero) connects the phones directly over WebRTC. Public Nostr relays only introduce them to each other; cards and turns travel phone to phone, end-to-end encrypted. There's no server and nothing to pay for. Both phones need the internet to connect, and a few strict networks (some mobile carriers, VPNs) block direct connections.
 
 The host applies every action through the same `apply()` rules as single-phone play and sends the guest the full game state after each change. `vendor/trystero-nostr.js` is a bundled copy of Trystero, loaded only when you start a two-phone game; the file header says how to rebuild it. `vendor/qrcode.js` (qrcode-generator) draws the invite QR code the same way.
+
+Wi-Fi pairing (`pair.js`) skips the relays: the two QR codes carry just what WebRTC needs (ICE credentials, the DTLS fingerprint and local addresses), and each phone rebuilds a full session description from them. It then uses the same game protocol as online play. Scanning uses the browser's BarcodeDetector where available, and falls back to a bundled copy of jsQR (`vendor/jsqr.js`, Apache-2.0) elsewhere, such as on iOS Safari.
 
 ## Adding questions
 
