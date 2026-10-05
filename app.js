@@ -533,7 +533,7 @@
         save();
         hideLink(); showApp();
         pushState(null);
-        toast(isNew ? `${name} joined` : `${name} is back`);
+        toast(isNew ? `${name} joined` : `${S.names[1]} is back`);
       };
       actA.onMessage = (a, { peerId }) => {
         if (!live()) return;
@@ -583,7 +583,9 @@
       };
       full.onMessage = (d) => {
         if (!live()) return;
-        if (link.connected) return; // only a phone that isn't in yet can be turned away
+        // a version mismatch always counts (the host may have reloaded onto new
+        // decks); "full" only turns away a phone that isn't in the game yet
+        if (link.connected && d?.reason !== "version") return;
         endLink({ notify: false });
         showLink("error", d?.reason === "version"
           ? "Your phones are on different versions of the game. Reload the page on both and try again."
