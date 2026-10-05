@@ -449,6 +449,7 @@
   }
   const me = () => (link.role === "host" ? 0 : link.role === "guest" ? 1 : null);
   const normCode = (c) => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  const randomHex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, "0")).join("");
   function newCode() {
     const r = crypto.getRandomValues(new Uint8Array(6));
     return Array.from(r, (b) => CODE_CHARS[b % CODE_CHARS.length]).join("");
@@ -479,7 +480,8 @@
     out.favs = strs(s.favs, 80).filter((k) => cardText(k));
     out.game = {
       used: strs(g.used, 80),
-      current: typeof g.current === "string" && cardText(g.current) ? g.current : null,
+      // a deleted custom card stays on the table ("This card was removed") until answered
+      current: typeof g.current === "string" && deckById(g.current.split("|")[0]) ? g.current.slice(0, 80) : null,
       isDare: g.isDare === true,
       turn: int(g.turn, 0, 1),
       answered: [0, 1].map((i) => int(g.answered?.[i], 0, 1e6)),
@@ -491,7 +493,7 @@
   }
   function pushState(r) {
     if (!link.connected) return;
-    link.send.state({ s: snapshot(), toast: r?.toast, decks: !!r?.decks }, { target: link.peer });
+    link.send.state({ s: snapshot(), key: session.key, toast: r?.toast, decks: !!r?.decks }, { target: link.peer });
   }
 
   async function connect() {
@@ -503,6 +505,8 @@
       onJoinError: (d) => console.warn("date-night-deck: peer connection failed", d.error)
     });
     link.room = room;
+    // events can still trickle in from a room this phone has already left
+    const live = () => link.room === room && session;
     const hello = room.makeAction("hello"), state = room.makeAction("state"),
       actA = room.makeAction("act"), bye = room.makeAction("bye"), full = room.makeAction("full");
     link.send = {
@@ -513,6 +517,7 @@
 
     if (link.role === "host") {
       hello.onMessage = (d, { peerId }) => {
+        if (!live()) return;
         const token = str(d?.token, 40), name = str(d?.name, 20) || "Player two";
         if (!token) return;
         if (d.v !== PROTOCOL || d.decks !== DECKS_VERSION) return full.send({ reason: "version" }, { target: peerId });
@@ -521,7 +526,9 @@
         const isNew = token !== session.partner;
         link.peer = peerId; link.connected = true;
         writeSession({ ...session, partner: token });
-        S.names[1] = name; S.started = true;
+        // a returning phone keeps whatever name it has in the game now
+        if (isNew) S.names[1] = name;
+        S.started = true;
         if (isNew) S.game = freshGame();
         save();
         hideLink(); showApp();
@@ -529,10 +536,12 @@
         toast(isNew ? `${name} joined` : `${name} is back`);
       };
       actA.onMessage = (a, { peerId }) => {
+        if (!live()) return;
         if (peerId !== link.peer || !a || typeof a.t !== "string") return;
         commit(apply(a, 1), 1);
       };
       bye.onMessage = (_, { peerId }) => {
+        if (!live()) return;
         if (peerId !== link.peer) return;
         toast(`${S.names[1]} left the game`);
         link.peer = null; link.connected = false;
@@ -540,17 +549,22 @@
         render();
       };
       room.onPeerLeave = (peerId) => {
+        if (!live()) return;
         if (peerId !== link.peer) return;
         link.connected = false;
         render();
       };
     } else {
       // greet every phone in the room; only the host answers
-      room.onPeerJoin = (peerId) => hello.send({ v: PROTOCOL, decks: DECKS_VERSION, token: session.token, name: session.name }, { target: peerId });
+      room.onPeerJoin = (peerId) => live() && hello.send({ v: PROTOCOL, decks: DECKS_VERSION, token: session.token, name: session.name }, { target: peerId });
       state.onMessage = (d, { peerId }) => {
+        if (!live()) return;
         if (!d?.s || typeof d.s !== "object") return;
-        // while linked, only the host we're linked with may change the game
-        if (link.connected && peerId !== link.peer) return;
+        // trust the first host this phone links with, then only a phone holding
+        // its key (sent over the encrypted channel) — survives the host reloading
+        const key = str(d.key, 40);
+        if (!key || (session.hostKey && key !== session.hostKey)) return;
+        if (!session.hostKey) writeSession({ ...session, hostKey: key });
         const first = !link.connected;
         link.peer = peerId; link.connected = true;
         S = cleanSnapshot(d.s);
@@ -561,18 +575,22 @@
         if (d.decks) openSheet("decks");
       };
       bye.onMessage = (_, { peerId }) => {
+        if (!live()) return;
         if (peerId !== link.peer) return;
         const host = S.names[0];
         endLink({ notify: false });
         toast(`${host} ended the two-phone game`);
       };
       full.onMessage = (d) => {
+        if (!live()) return;
+        if (link.connected) return; // only a phone that isn't in yet can be turned away
         endLink({ notify: false });
         showLink("error", d?.reason === "version"
           ? "Your phones are on different versions of the game. Reload the page on both and try again."
           : "That game already has two players.");
       };
       room.onPeerLeave = (peerId) => {
+        if (!live()) return;
         if (peerId !== link.peer) return;
         link.connected = false;
         render();
@@ -597,15 +615,14 @@
   async function host(name) {
     const code = newCode();
     S.names[0] = name;
-    writeSession({ role: "host", code, partner: null });
+    writeSession({ role: "host", code, partner: null, key: randomHex(12) });
     link.role = "host"; save();
     showLink("hosting", null, code);
     await startLink("host", code);
   }
   async function join(code, name) {
-    const token = session?.role === "guest" && session.code === code ? session.token
-      : Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
-    writeSession({ role: "guest", code, name, token });
+    const same = session?.role === "guest" && session.code === code;
+    writeSession({ role: "guest", code, name, token: same ? session.token : randomHex(12), hostKey: same ? session.hostKey : undefined });
     showLink("joining", null, code);
     await startLink("guest", code);
   }
