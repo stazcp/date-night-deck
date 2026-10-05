@@ -226,12 +226,16 @@
   }
   function renderActions() {
     const g = S.game, el = $("actions"), mine = me();
-    if (link.role === "guest" && !link.connected) {
+    if (link.role === "guest" && !link.connected && link.mode === "local") {
+      el.innerHTML = `<button class="btn" data-act="repair">Pair again</button>`;
+    } else if (link.role === "guest" && !link.connected) {
       el.innerHTML = `<p class="wait">Reconnecting to ${esc(S.names[0])}'s phone<span class="dots"></span></p>`;
     } else if (!g.current) {
       el.innerHTML = `<button class="btn" data-act="draw">Draw the first card</button>`;
     } else if (isBoth()) {
       el.innerHTML = `<button class="btn" data-act="answered">Done, next card</button><button class="btn ghost" data-act="skip">Skip</button>`;
+    } else if (mine != null && g.turn !== mine && link.mode === "local" && !link.connected) {
+      el.innerHTML = `<button class="btn" data-act="repair">Pair again with ${esc(S.names[g.turn])}</button>`;
     } else if (mine != null && g.turn !== mine) {
       el.innerHTML = `<p class="wait">Waiting for <b>${esc(S.names[g.turn])}</b> to ${g.isDare ? "do the dare" : "answer"}<span class="dots"></span></p>`;
     } else {
@@ -249,6 +253,7 @@
     const partner = S.names[link.role === "host" ? 1 : 0];
     pill.classList.toggle("on", link.connected);
     pill.textContent = link.connected ? `Linked with ${partner}`
+      : link.mode === "local" ? "Not connected"
       : link.role === "host" && !session?.partner ? `Room ${link.code}` : "Reconnecting…";
   }
 
@@ -270,6 +275,7 @@
   $("actions").addEventListener("click", (e) => {
     const t = e.target.closest("[data-act]")?.dataset.act;
     if (!t) return;
+    if (t === "repair") return pairAgain();
     // a tap that lands just as the partner's tap brings a new card was meant
     // for the old card, not the one nobody has read yet
     if (t !== "draw" && Date.now() - shownAt < 700) return;
@@ -409,6 +415,17 @@
       title.textContent = "Two phones";
       const host = link.role === "host";
       if (!link.role) { body.innerHTML = `<p>This phone isn't linked to another one.</p>`; return; }
+      if (link.mode === "local") {
+        body.innerHTML = `
+          <p>${esc(linkStatus())}</p>
+          ${link.connected ? "" : `<div class="row"><button class="btn small" id="pair-again">Pair again</button></div>`}
+          <p>${host ? "You're the host. This phone keeps the game: decks, saved cards and your own cards come from here." : "The host's phone keeps the game. Your own saved game on this phone is untouched."}</p>
+          <div class="row"><button class="btn small danger" id="unlink">${host ? "End two-phone game" : "Leave game"}</button></div>`;
+        if (!link.connected) $("pair-again").onclick = () => { closeSheet(); pairAgain(); };
+        $("unlink").onclick = () => { closeSheet(); endLink({ notify: true }); };
+        if (snap) sheetRestore(snap);
+        return;
+      }
       body.innerHTML = `
         <p>${esc(linkStatus())}</p>
         ${host && !link.connected ? qrBox(inviteUrl()) : ""}
@@ -436,7 +453,8 @@
     for (const ch of JSON.stringify(DECKS)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
     return (h >>> 0).toString(36);
   })();
-  const link = { role: null, code: null, room: null, peer: null, connected: false, send: {} };
+  // mode "local" means paired over Wi-Fi by QR codes (no relays, no internet)
+  const link = { role: null, mode: null, code: null, room: null, peer: null, connected: false, send: {} };
   let session = readSession();
   let p2p = null;
   const loadP2P = () => (p2p ||= import("./vendor/trystero-nostr.js").catch((e) => { p2p = null; throw e; }));
@@ -461,18 +479,18 @@
   let qrLib = null;
   const qrCache = {};
   const loadQR = () => (qrLib ||= import("./vendor/qrcode.js").then((m) => m.default).catch((e) => { qrLib = null; throw e; }));
-  const qrBox = (url) => `<div class="qr" data-qr="${esc(url)}">${qrCache[url] || ""}</div>`;
+  const qrBox = (text) => `<div class="qr" data-qr="${esc(text)}">${qrCache[text] || ""}</div>`;
   async function fillQR(root) {
     for (const box of root.querySelectorAll("[data-qr]")) {
       const url = box.dataset.qr;
       if (!qrCache[url]) {
         try {
-          const qr = (await loadQR())(0, "M");
+          const qr = (await loadQR())(0, url.startsWith("DND1") ? "L" : "M");
           qr.addData(url); qr.make();
           const n = qr.getModuleCount(), pad = 4;
           let d = "";
           for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c + pad} ${r + pad}h1v1h-1z`;
-          qrCache[url] = `<svg viewBox="0 0 ${n + pad * 2} ${n + pad * 2}" role="img" aria-label="QR code of the invite link" shape-rendering="crispEdges"><path d="${d}"/></svg>`;
+          qrCache[url] = `<svg viewBox="0 0 ${n + pad * 2} ${n + pad * 2}" role="img" aria-label="${url.startsWith("DND1") ? "Pairing code" : "QR code of the invite link"}" shape-rendering="crispEdges"><path d="${d}"/></svg>`;
         } catch (e) { box.hidden = true; continue; } // offline: the code and share button still work
       }
       // the screen may have re-rendered while the library loaded
@@ -481,6 +499,7 @@
   }
   function linkStatus() {
     const partner = S.names[link.role === "host" ? 1 : 0];
+    if (link.mode === "local") return link.connected ? `Linked with ${partner}'s phone over Wi-Fi.` : `Not connected to ${partner}'s phone. Pair again to keep playing together.`;
     if (link.connected) return `Linked with ${partner}'s phone.`;
     if (link.role === "host") return session?.partner ? `${partner}'s phone is offline. It reconnects on its own.` : `Waiting for your partner to join with code ${link.code}.`;
     return `Reconnecting to ${partner}'s phone…`;
@@ -525,9 +544,13 @@
     const { joinRoom } = await loadP2P();
     // cancelled (or restarted) while the library loaded
     if (link.role !== role || link.code !== code || link.room) return;
-    const room = joinRoom({ appId: APP_ID, password: link.code }, "room-" + link.code, {
+    wire(joinRoom({ appId: APP_ID, password: link.code }, "room-" + link.code, {
       onJoinError: (d) => console.warn("date-night-deck: peer connection failed", d.error)
-    });
+    }));
+  }
+
+  // The game protocol, the same over Trystero rooms and Wi-Fi pairing
+  function wire(room) {
     link.room = room;
     // events can still trickle in from a room this phone has already left
     const live = () => link.room === room && session;
@@ -577,6 +600,7 @@
         if (peerId !== link.peer) return;
         link.connected = false;
         render();
+        if (link.mode === "local") toast(`Lost the connection to ${S.names[me() ? 0 : 1]}'s phone`);
       };
     } else {
       // greet every phone in the room; only the host answers
@@ -620,12 +644,13 @@
         if (peerId !== link.peer) return;
         link.connected = false;
         render();
+        if (link.mode === "local") toast(`Lost the connection to ${S.names[me() ? 0 : 1]}'s phone`);
       };
     }
   }
 
   async function startLink(role, code, name) {
-    link.role = role; link.code = code; link.peer = null; link.connected = false;
+    link.role = role; link.mode = null; link.code = code; link.peer = null; link.connected = false;
     try {
       await connect();
     } catch (e) {
@@ -654,10 +679,11 @@
   }
 
   async function endLink({ notify }) {
+    stopPairing();
     const { room, role, connected } = link;
     if (notify && connected) { try { await link.send.bye(); } catch (e) { /* already gone */ } }
     try { room?.leave(); } catch (e) { /* ignore */ }
-    Object.assign(link, { role: null, code: null, room: null, peer: null, connected: false, send: {} });
+    Object.assign(link, { role: null, mode: null, code: null, room: null, peer: null, connected: false, send: {} });
     writeSession(null);
     if (currentSheet) closeSheet();
     hideLink();
@@ -675,6 +701,173 @@
     catch (e) { toast(`Share the room code: ${link.code}`); }
   }
 
+  // ---------- Pairing on Wi-Fi (no internet) ----------
+  // Two QR scans replace the relays: the host shows its code, the guest scans it
+  // and shows one back, the host scans that. See pair.js.
+  let pairMod = null, pairing = null, scanCtl = null, pairGen = 0, pairWait;
+  const loadPair = () => (pairMod ||= import("./pair.js").catch((e) => { pairMod = null; throw e; }));
+  function stopScan() { scanCtl?.abort(); scanCtl = null; }
+  function stopPairing() {
+    pairGen++; stopScan(); clearTimeout(pairWait);
+    try { pairing?.close(); } catch (e) { /* closed */ }
+    pairing = null;
+  }
+  const partnerName = () => S.names[link.role === "host" ? 1 : 0];
+  // an earlier partner to pair with again, so the game carries on
+  const hasPartner = () => (link.role === "host" ? !!session?.partner && S.started : !!session?.hostKey);
+
+  function pairAgain() { if (link.role === "host") hostLocal(); else joinLocal(); }
+
+  async function hostLocal(name) {
+    if (!(session?.role === "host" && session.mode === "local")) {
+      if (link.role) await endLink({ notify: true });
+      if (name) S.names[0] = name;
+      writeSession({ role: "host", mode: "local", partner: null, key: randomHex(12) });
+      save();
+    }
+    stopPairing();
+    Object.assign(link, { role: "host", mode: "local", code: null });
+    const gen = pairGen;
+    showPair("host-code");
+    try {
+      const offer = await (await loadPair()).startOffer();
+      if (gen !== pairGen) return offer.close();
+      pairing = offer;
+      showPair("host-code", offer.payload);
+    } catch (e) { pairFailed(e, gen); }
+  }
+  async function hostScan() {
+    const gen = pairGen, pair = await loadPair();
+    const text = await scanFor("Scan your partner's code", "On their phone it says “Now let them scan this”.", pair.isAnswer, gen);
+    if (!text || gen !== pairGen) return;
+    showPair("connecting");
+    try {
+      const room = await pairing.finish(text);
+      if (gen !== pairGen) return room.leave();
+      pairing = null;
+      useRoom(room, gen);
+    } catch (e) { pairFailed(e, gen); }
+  }
+
+  async function joinLocal(name) {
+    if (!(session?.role === "guest" && session.mode === "local")) {
+      if (link.role) await endLink({ notify: true });
+      writeSession({ role: "guest", mode: "local", name, token: randomHex(12) });
+    }
+    stopPairing();
+    Object.assign(link, { role: "guest", mode: "local", code: null });
+    const gen = pairGen;
+    try {
+      const pair = await loadPair();
+      const text = await scanFor("Scan the host's code", hasPartner()
+        ? `On ${S.names[0]}'s phone, open Two phones and tap Pair again.`
+        : "On their phone: Host a game, then Pair on the same Wi-Fi.", pair.isOffer, gen);
+      if (!text || gen !== pairGen) return;
+      showPair("connecting");
+      const answer = await pair.answerOffer(text);
+      if (gen !== pairGen) return answer.close();
+      pairing = answer;
+      showPair("guest-code", answer.payload);
+      const room = await answer.opened;
+      if (gen !== pairGen) return room.leave();
+      pairing = null;
+      useRoom(room, gen);
+    } catch (e) { pairFailed(e, gen); }
+  }
+
+  function useRoom(room, gen) {
+    try { link.room?.leave(); } catch (e) { /* already closed */ }
+    link.room = null; link.peer = null; link.connected = false;
+    wire(room);
+    showPair("connecting");
+    // the host answers the guest's hello; if that never happens, say so
+    pairWait = setTimeout(() => { if (gen === pairGen && !link.connected) pairFailed(new Error("no-hello"), gen); }, 15000);
+  }
+
+  // camera view that resolves with the first QR code `accept` likes, or null if cancelled
+  async function scanFor(title, hint, accept, gen) {
+    showPair("scan", null, { title, hint });
+    stopScan();
+    const ctl = (scanCtl = new AbortController());
+    let warned = 0;
+    const check = (t) => {
+      if (accept(t)) return true;
+      if (Date.now() - warned > 3000) { warned = Date.now(); toast("That's not the right code. Scan the one on the pairing screen."); }
+      return false;
+    };
+    try {
+      return await (await loadPair()).scan($("scan-video"), check, ctl.signal);
+    } catch (e) {
+      if (e.name === "AbortError") return null;
+      pairFailed(e, gen);
+      return null;
+    } finally { if (scanCtl === ctl) scanCtl = null; }
+  }
+
+  function pairFailed(e, gen) {
+    if (gen !== pairGen || e?.name === "AbortError") return;
+    console.warn("date-night-deck: Wi-Fi pairing failed", e);
+    const msg = e?.name === "NotAllowedError" ? "Scanning needs the camera. Allow camera access for this site in your browser settings, then try again."
+      : e?.name === "NotFoundError" || e?.name === "OverconstrainedError" ? "This phone has no camera we can use. Let the other phone scan instead: swap who hosts."
+      : e?.message === "no-network" ? "This phone isn't on a network. Connect both phones to the same Wi-Fi, or turn on one phone's hotspot and join it from the other."
+      : e?.message === "no-hello" ? "The phones paired, but the game didn't answer. Reload the game on both phones so they're on the same version, then try again."
+      : e?.message === "bad-code" ? "That code didn't work. Make sure you scanned the code from this game's pairing screen."
+      : "The phones couldn't reach each other. Check they're on the same Wi-Fi. Public and hotel Wi-Fi often block this; one phone's hotspot works instead.";
+    stopPairing();
+    showPair("failed", null, { msg });
+  }
+
+  function cancelPair() {
+    stopPairing();
+    if (!hasPartner()) return endLink({ notify: false });
+    // keep the two-phone game so you can pair again later
+    if (link.role === "guest") return showPair("again");
+    hideLink(); showApp({ animate: false });
+  }
+
+  function showPair(view, payload, opts = {}) {
+    $("setup").hidden = true;
+    $("link").hidden = false;
+    clearTimeout(joinHint);
+    if (view !== "scan") stopScan();
+    const p = $("link-panel"), partner = esc(partnerName() || "your partner");
+    const cancel = `<button type="button" class="btn ghost small" id="pair-cancel">Cancel</button>`;
+    if (view === "host-code") {
+      p.innerHTML = `<h2>Pair on Wi-Fi</h2>
+        <p>No internet needed. Both phones must be on the same Wi-Fi, or one on the other's hotspot.</p>
+        <ol class="steps"><li>${hasPartner() ? `On ${partner}'s phone, tap <b>Pair again</b>` : `On your partner's phone, tap <b>Join a game</b>, then <b>Pair on the same Wi-Fi</b>`}, and scan this code.</li>
+          <li>Then scan the code their phone shows.</li></ol>
+        ${payload ? qrBox(payload) : `<div class="qr"></div>`}
+        <button class="btn" type="button" id="pair-next" ${payload ? "" : "disabled"}>Scan their code</button>${cancel}`;
+      if (payload) { fillQR(p); $("pair-next").onclick = hostScan; }
+    } else if (view === "guest-code") {
+      p.innerHTML = `<h2>Now let them scan this</h2>
+        <p>Tap <b>Scan their code</b> on ${partner === "your partner" ? "the host's" : partner + "'s"} phone and point it here.</p>
+        ${qrBox(payload)}
+        <p class="wait">Waiting for them to scan<span class="dots"></span></p>${cancel}`;
+      fillQR(p);
+    } else if (view === "scan") {
+      p.innerHTML = `<h2>${esc(opts.title)}</h2>
+        <div class="scanner"><video id="scan-video" playsinline muted></video></div>
+        <p>${esc(opts.hint)}</p>${cancel}`;
+    } else if (view === "connecting") {
+      p.innerHTML = `<h2>Pairing</h2><p class="wait">Connecting the phones<span class="dots"></span></p>${cancel}`;
+    } else if (view === "again") {
+      p.innerHTML = `<div class="logo small" aria-hidden="true"><span>D<i>&amp;</i>N</span></div><h2>Pair again</h2>
+        <p>You were playing on ${esc(S.names[0] || "the host")}'s phone over Wi-Fi. Pair again to pick up where you left off.</p>
+        <button class="btn" type="button" id="pair-retry">Scan their code</button>
+        <button type="button" class="btn ghost small" id="pair-leave">Leave game</button>`;
+      $("pair-retry").onclick = () => joinLocal();
+      $("pair-leave").onclick = () => endLink({ notify: false });
+    } else if (view === "failed") {
+      p.innerHTML = `<div class="logo small" aria-hidden="true"><span>D<i>&amp;</i>N</span></div><h2>Couldn't pair</h2><p>${esc(opts.msg)}</p>
+        <button class="btn" type="button" id="pair-retry">Try again</button>${cancel}`;
+      $("pair-retry").onclick = pairAgain;
+    }
+    p.querySelector("#pair-cancel")?.addEventListener("click", cancelPair);
+    p.querySelector("button:not([disabled])")?.focus();
+  }
+
   // ---------- Two-phone screens ----------
   let joinHint;
   function showLink(view, msg, code) {
@@ -688,8 +881,10 @@
         <p>You'll get a room code to share. Your partner joins from their own phone.</p>
         <form class="fields" id="host-form"><label for="host-name">Your name</label>
           <input id="host-name" autocomplete="off" maxlength="20" placeholder="Your name" value="${esc(S.names[0])}" required></form>
-        <button class="btn" type="submit" form="host-form">Create a room</button>${back}`;
+        <button class="btn" type="submit" form="host-form">Create a room</button>
+        ${wifiOption("host-wifi")}${back}`;
       $("host-form").onsubmit = (e) => { e.preventDefault(); const n = str($("host-name").value, 20); if (n) host(n); };
+      $("host-wifi").onclick = () => { const n = str($("host-name").value, 20); if (n) hostLocal(n); else $("host-name").focus(); };
     } else if (view === "join") {
       p.innerHTML = `${logo}<h2>Join a game</h2>
         <p>Enter the room code from your partner's phone.</p>
@@ -698,7 +893,9 @@
           <input id="join-code" class="code-input" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="7" placeholder="ABC123" value="${esc(code || "")}" required>
           <label for="join-name">Your name</label>
           <input id="join-name" autocomplete="off" maxlength="20" placeholder="Your name" value="${esc(session?.name || S.names[0])}" required></form>
-        <button class="btn" type="submit" form="join-form">Join</button>${back}`;
+        <button class="btn" type="submit" form="join-form">Join</button>
+        ${wifiOption("join-wifi")}${back}`;
+      $("join-wifi").onclick = () => { const n = str($("join-name").value, 20); if (n) joinLocal(n); else $("join-name").focus(); };
       $("join-form").onsubmit = (e) => {
         e.preventDefault();
         const c = normCode($("join-code").value), n = str($("join-name").value, 20);
@@ -729,7 +926,9 @@
     p.querySelector("#cancel-link")?.addEventListener("click", () => endLink({ notify: false }));
     (p.querySelector("input:not([value]), input[value='']") || p.querySelector("input, button"))?.focus();
   }
-  function hideLink() { $("link").hidden = true; clearTimeout(joinHint); }
+  function hideLink() { $("link").hidden = true; clearTimeout(joinHint); stopScan(); }
+  const wifiOption = (id) => `<p class="fine">${navigator.onLine === false ? "You're offline. " : ""}No internet?
+    <button type="button" class="text-btn" id="${id}">Pair on the same Wi-Fi instead</button></p>`;
   document.querySelectorAll("[data-link]").forEach((b) => b.addEventListener("click", () => showLink(b.dataset.link)));
 
   // ---------- Setup ----------
@@ -757,6 +956,12 @@
     if (session) writeSession(null);
     if (S.started) showApp(); else showSetup();
     showLink("join", null, joinParam);
+  } else if (session?.mode === "local") {
+    // Wi-Fi pairing can't reconnect on its own after a reload: offer to pair again
+    Object.assign(link, { role: session.role, mode: "local" });
+    if (!hasPartner()) { writeSession(null); Object.assign(link, { role: null, mode: null }); if (S.started) showApp(); else showSetup(); }
+    else if (session.role === "host") showApp();
+    else showPair("again");
   } else if (session?.role === "guest") {
     showLink("joining", null, session.code);
     startLink("guest", session.code);
