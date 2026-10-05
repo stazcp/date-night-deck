@@ -1,6 +1,6 @@
 // Offline support: serve app files from cache, refresh them in the background.
-const CACHE = "date-night-deck-v2";
-const FILES = ["./", "index.html", "styles.css", "app.js", "questions.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "vendor/trystero-nostr.js"];
+const CACHE = "date-night-deck-v3";
+const FILES = ["./", "index.html", "styles.css", "app.js", "questions.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "vendor/trystero-nostr.js", "vendor/qrcode.js"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
